@@ -89,6 +89,14 @@ const POPULAR_PLACES = [
   }
 ];
 
+type LivePlaceResult = {
+  pageid: number;
+  title: string;
+  extract?: string;
+  thumbnail?: { source: string };
+  coordinates?: { lat: number; lon: number }[];
+};
+
 // Helper to generate chronological non-repeating itinerary
 const generateItinerary = (placeName: string, daysStr: string, attractions: any[]) => {
   const days = parseInt(daysStr) || 3;
@@ -169,6 +177,10 @@ export default function Home() {
   const [itinerary, setItinerary] = useState<any[]>([]);
   const [expandedDay, setExpandedDay] = useState<number | null>(1); 
   const [selectedAttraction, setSelectedAttraction] = useState<any>(null); 
+  const [searchResults, setSearchResults] = useState<LivePlaceResult[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState('');
 
   useEffect(() => {
     const handleScroll = () => setIsScrolled(window.scrollY > 50);
@@ -176,34 +188,86 @@ export default function Home() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
+  useEffect(() => {
+    if (searchLoading || searchResults.length > 0 || searchError) {
+      document.getElementById('search-results')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [searchLoading, searchResults.length, searchError]);
+
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  const handleSearchSubmit = (e: React.FormEvent) => {
+  const handleSearchSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    let foundPlace = POPULAR_PLACES.find(p => p.name.toLowerCase().includes(formData.place.toLowerCase()));
-    
-    if (!foundPlace) {
-      foundPlace = {
-        id: 'new',
-        name: formData.place || 'Unknown Destination',
-        location: formData.country || 'Global',
-        rating: 4.8,
-        reviews: 120,
-        description: `Experience the magic of ${formData.place}. A wonderful destination offering unique culture, scenic views, and unforgettable adventures.`,
-        image: 'https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?auto=format&fit=crop&q=80&w=800',
-        photos: ['https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?auto=format&fit=crop&q=80&w=1200'],
-        isGhat: formData.place.toLowerCase().includes('ghat'),
-        attractions: []
-      };
-    }
-    
-    setActivePlace(foundPlace);
-    setItinerary([]); 
-    setSelectedAttraction(null);
+    const query = [formData.place.trim(), formData.country.trim()].filter(Boolean).join(' ');
+    setSearchQuery(query);
+    setSearchResults([]);
+    setSearchError('');
+    setSearchLoading(true);
+    setActivePlace(null);
     setMobileMenuOpen(false);
+
+    const params = new URLSearchParams({
+      action: 'query',
+      generator: 'search',
+      gsrsearch: query,
+      gsrnamespace: '0',
+      gsrlimit: '12',
+      prop: 'pageimages|extracts|coordinates',
+      piprop: 'thumbnail',
+      pithumbsize: '1000',
+      exintro: '1',
+      explaintext: '1',
+      format: 'json',
+      formatversion: '2',
+      origin: '*'
+    });
+
+    try {
+      const response = await fetch(`https://en.wikipedia.org/w/api.php?${params.toString()}`);
+      if (!response.ok) throw new Error('Search request failed');
+      const data: { query?: { pages?: LivePlaceResult[] }; error?: { info?: string } } = await response.json();
+      if (data.error) throw new Error(data.error.info || 'Search request failed');
+
+      const places = (data.query?.pages ?? []).filter(
+        (place) => Boolean(place.coordinates?.length && place.thumbnail?.source && place.extract?.trim())
+      );
+      setSearchResults(places);
+      if (places.length === 0) setSearchError('No photo-backed places were found. Try a nearby city or a broader region.');
+    } catch {
+      setSearchError('We couldn’t load live place data right now. Please try again in a moment.');
+    } finally {
+      setSearchLoading(false);
+    }
+  };
+
+  const handleSelectLivePlace = (place: LivePlaceResult) => {
+    const relatedPlaces = searchResults
+      .filter((result) => result.pageid !== place.pageid)
+      .map((result) => ({
+        name: result.title,
+        type: 'Place',
+        desc: result.extract || `Explore ${result.title}.`,
+        img: result.thumbnail?.source || '',
+        history: result.extract || `Explore ${result.title}.`,
+        timings: 'Check locally before visiting',
+        fee: 'Check locally'
+      }));
+
+    setActivePlace({
+      id: String(place.pageid),
+      name: place.title,
+      location: formData.country || 'Travel inspiration',
+      description: place.extract,
+      image: place.thumbnail?.source,
+      photos: place.thumbnail?.source ? [place.thumbnail.source] : [],
+      isGhat: false,
+      attractions: relatedPlaces
+    });
+    setItinerary([]);
+    setSelectedAttraction(null);
   };
 
   const handleGenerateGuide = () => {
@@ -214,7 +278,7 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] font-sans text-slate-900 selection:bg-teal-200 relative overflow-x-hidden">
+    <div className="min-h-screen bg-[#f6f7f3] font-sans text-[#1d2925] selection:bg-emerald-200 relative overflow-x-hidden">
       
       {/* Background Pattern */}
       <div 
@@ -228,27 +292,28 @@ export default function Home() {
       />
 
       {/* --- PREMIUM NAVBAR --- */}
-      <nav className={`fixed top-0 w-full z-50 px-6 lg:px-12 py-4 transition-all duration-500 flex justify-between items-center ${isScrolled ? 'bg-white/85 backdrop-blur-xl shadow-[0_4px_30px_rgba(0,0,0,0.03)] text-slate-900 border-b border-slate-200/50' : 'bg-gradient-to-b from-black/60 to-transparent text-white'}`}>
+      <nav aria-label="Main navigation" className={`fixed top-0 w-full z-50 px-5 lg:px-12 py-4 transition-all duration-500 flex justify-between items-center ${isScrolled ? 'bg-[#f6f7f3]/90 backdrop-blur-xl shadow-[0_4px_30px_rgba(29,41,37,0.08)] text-slate-900 border-b border-slate-200/60' : 'bg-gradient-to-b from-black/55 to-transparent text-white'}`}>
         <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActivePlace(null)}>
-          <div className={`p-2 rounded-xl transition-all duration-300 ${isScrolled ? 'bg-teal-500 text-white shadow-md' : 'bg-white/20 text-white backdrop-blur-md'}`}>
-            <Navigation className="w-5 h-5" />
+          <div className={`w-10 h-10 rounded-full transition-all duration-300 flex items-center justify-center ${isScrolled ? 'bg-[#21483e] text-white shadow-md' : 'bg-white/15 text-white backdrop-blur-md border border-white/25'}`}>
+            <Navigation className="w-[18px] h-[18px]" />
           </div>
-          <span className="font-heading font-extrabold text-2xl tracking-tight">Ready<span className={isScrolled ? 'text-teal-600' : 'text-teal-400'}>To</span>Travel</span>
+          <span className="font-heading font-bold text-[1.35rem] tracking-tight">Ready<span className={isScrolled ? 'text-[#bd7559]' : 'text-[#f0b293]'}>To</span>Travel</span>
         </div>
         
         {/* Desktop Links */}
         <div className="hidden md:flex items-center gap-8 font-semibold text-sm">
-          <a href="#destinations" className={`transition-colors ${isScrolled ? 'text-slate-600 hover:text-teal-600' : 'text-white/90 hover:text-white'}`}>Destinations</a>
-          <a href="#features" className={`transition-colors ${isScrolled ? 'text-slate-600 hover:text-teal-600' : 'text-white/90 hover:text-white'}`}>How It Works</a>
-          <a href="#testimonials" className={`transition-colors ${isScrolled ? 'text-slate-600 hover:text-teal-600' : 'text-white/90 hover:text-white'}`}>Testimonials</a>
-          <button className={`px-5 py-2.5 rounded-full font-bold transition-all ${isScrolled ? 'bg-slate-900 text-white hover:bg-teal-600 shadow-md' : 'bg-white text-slate-900 hover:bg-teal-50'}`}>
+          <a href="#destinations" className={`transition-colors ${isScrolled ? 'text-slate-600 hover:text-[#bd7559]' : 'text-white/90 hover:text-white'}`}>Destinations</a>
+          <a href="#experiences" className={`transition-colors ${isScrolled ? 'text-slate-600 hover:text-[#bd7559]' : 'text-white/90 hover:text-white'}`}>Experiences</a>
+          <a href="#features" className={`transition-colors ${isScrolled ? 'text-slate-600 hover:text-[#bd7559]' : 'text-white/90 hover:text-white'}`}>How it works</a>
+          <a href="#testimonials" className={`transition-colors ${isScrolled ? 'text-slate-600 hover:text-[#bd7559]' : 'text-white/90 hover:text-white'}`}>Stories</a>
+          <a href="#trip-search" className={`px-5 py-2.5 rounded-full font-bold transition-all ${isScrolled ? 'bg-[#21483e] text-white hover:bg-[#bd7559] shadow-md' : 'bg-white text-slate-900 hover:bg-[#f4e9e1]'}`}>
             Sign In
-          </button>
+          </a>
         </div>
 
         {/* Mobile Menu Toggle */}
         <div className="md:hidden">
-          <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="p-2">
+          <button aria-label={mobileMenuOpen ? "Close navigation menu" : "Open navigation menu"} aria-expanded={mobileMenuOpen} onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="p-2">
             {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
           </button>
         </div>
@@ -259,118 +324,165 @@ export default function Home() {
         {mobileMenuOpen && (
           <motion.div 
             initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
-            className="fixed inset-0 z-40 bg-white pt-24 px-6 flex flex-col gap-6 text-xl font-heading font-bold"
+            className="fixed inset-0 z-40 bg-[#f6f7f3] text-[#1d2925] pt-24 px-6 flex flex-col gap-6 text-xl font-heading font-bold"
           >
             <a href="#destinations" onClick={() => setMobileMenuOpen(false)} className="pb-4 border-b border-slate-100">Destinations</a>
-            <a href="#features" onClick={() => setMobileMenuOpen(false)} className="pb-4 border-b border-slate-100">How It Works</a>
-            <a href="#testimonials" onClick={() => setMobileMenuOpen(false)} className="pb-4 border-b border-slate-100">Testimonials</a>
-            <button className="bg-teal-600 text-white py-4 rounded-2xl mt-4">Sign In</button>
+            <a href="#experiences" onClick={() => setMobileMenuOpen(false)} className="pb-4 border-b border-slate-100">Experiences</a>
+            <a href="#features" onClick={() => setMobileMenuOpen(false)} className="pb-4 border-b border-slate-100">How it works</a>
+            <a href="#testimonials" onClick={() => setMobileMenuOpen(false)} className="pb-4 border-b border-slate-100">Stories</a>
+            <a href="#trip-search" onClick={() => setMobileMenuOpen(false)} className="bg-[#21483e] text-white py-4 rounded-full mt-4 text-center">Plan a trip</a>
           </motion.div>
         )}
       </AnimatePresence>
 
       {/* --- HERO SECTION --- */}
-      <main className="relative min-h-[90vh] flex flex-col items-center justify-center px-4 lg:px-12 pt-20 pb-16">
-        <div className="absolute inset-x-2 top-2 bottom-0 z-0 rounded-[2.5rem] lg:rounded-[3.5rem] overflow-hidden shadow-2xl">
+      <main className="relative min-h-[780px] h-[min(920px,100svh)] flex flex-col justify-center px-4 sm:px-6 lg:px-10 pt-24 pb-14">
+        <div className="absolute inset-x-2 top-2 bottom-0 z-0 rounded-[1.75rem] lg:rounded-[2.5rem] overflow-hidden shadow-[0_30px_90px_-35px_rgba(21,40,34,0.55)]">
           <motion.img 
             initial={{ scale: 1.15 }} animate={{ scale: 1 }} transition={{ duration: 2, ease: "easeOut" }}
             src="https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?q=80&w=2070&auto=format&fit=crop"
             alt="Hero Background" 
             className="w-full h-full object-cover"
           />
-          <div className="absolute inset-0 bg-gradient-to-b from-slate-900/60 via-slate-900/20 to-slate-900/80"></div>
+          <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(16,35,30,0.76)_0%,rgba(16,35,30,0.48)_47%,rgba(16,35,30,0.08)_100%)]"></div>
+          <div className="absolute inset-0 bg-gradient-to-t from-[#13251f]/55 via-transparent to-black/10"></div>
         </div>
 
         <motion.div 
           initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.1 }}
-          className="relative z-10 w-full max-w-5xl flex flex-col items-center mt-12"
+          className="relative z-10 w-full max-w-7xl mx-auto flex flex-col items-start mt-8"
         >
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/10 backdrop-blur-md text-white/90 text-sm font-semibold tracking-wider uppercase mb-8 border border-white/20 shadow-xl">
-            <SparklesIcon className="w-4 h-4 text-teal-300" />
-            AI-Powered Trip Planning
+          <div className="inline-flex items-center gap-2.5 px-3.5 py-2 rounded-full bg-white/12 backdrop-blur-md text-white/90 text-xs font-bold tracking-[0.14em] uppercase mb-7 border border-white/25 shadow-xl">
+            <SparklesIcon className="w-4 h-4 text-[#f0b293]" />
+            Thoughtful trips, made simple
           </div>
-          <h1 className="font-heading text-5xl md:text-7xl lg:text-[5.5rem] font-extrabold text-white text-center mb-6 tracking-tight drop-shadow-2xl leading-[1.1]">
-            Experience The World, <br className="hidden md:block"/> 
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-teal-300 via-emerald-200 to-teal-100 relative">
-              Beautifully Planned.
-              <svg className="absolute w-full h-3 -bottom-1 left-0 text-teal-400 opacity-60" viewBox="0 0 100 10" preserveAspectRatio="none"><path d="M0 5 Q 50 15 100 5" stroke="currentColor" strokeWidth="4" fill="transparent"/></svg>
-            </span>
+          <h1 className="font-heading text-[3.6rem] sm:text-7xl lg:text-[6.4rem] font-medium text-white max-w-4xl mb-5 drop-shadow-2xl leading-[0.98]">
+            The world is wide.<br />
+            <span className="italic text-[#f4c3a7]">Your next story</span> is closer.
           </h1>
-          <p className="text-lg md:text-xl text-slate-200 text-center mb-14 max-w-2xl font-medium drop-shadow-md leading-relaxed">
-            Stop stressing over itineraries. Tell us where you want to go, and our intelligent engine builds your perfect chronological guide in seconds.
+          <p className="text-base md:text-lg text-white/85 mb-9 max-w-xl drop-shadow-md leading-relaxed">
+            Find the places that stay with you. We’ll turn your destination into a thoughtful, day-by-day guide worth looking forward to.
           </p>
           
           <form 
             onSubmit={handleSearchSubmit}
-            className="bg-white/95 backdrop-blur-2xl rounded-3xl md:rounded-full p-2.5 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.5)] flex flex-col md:flex-row items-center w-full max-w-5xl gap-2 md:gap-0 divide-y md:divide-y-0 md:divide-x divide-slate-200 border border-white/60"
+            id="trip-search"
+            aria-busy={searchLoading}
+            className="bg-white/95 backdrop-blur-2xl rounded-2xl md:rounded-full p-2 md:p-2.5 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.42)] flex flex-col md:flex-row items-center w-full max-w-5xl gap-1 md:gap-0 divide-y md:divide-y-0 md:divide-x divide-slate-200/80 border border-white/70"
           >
             <div className="flex-1 px-6 py-4 w-full hover:bg-teal-50/50 rounded-t-2xl md:rounded-l-full md:rounded-t-none transition-colors group cursor-text">
-              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 group-hover:text-teal-600 transition-colors">Where To?</label>
-              <input type="text" name="place" required value={formData.place} onChange={handleInputChange} placeholder="Destination (e.g. Kyoto)" className="w-full bg-transparent outline-none text-slate-800 placeholder-slate-300 font-bold text-lg truncate"/>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-[0.16em] mb-1.5 group-hover:text-[#bd7559] transition-colors">Destination</label>
+              <input type="text" name="place" required value={formData.place} onChange={handleInputChange} placeholder="Where would you love to go?" className="w-full bg-transparent outline-none text-slate-800 placeholder-slate-400 font-semibold text-base truncate"/>
             </div>
             
             <div className="flex-1 px-6 py-4 w-full hover:bg-teal-50/50 transition-colors group cursor-text">
-              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 group-hover:text-teal-600 transition-colors">Country / Region</label>
-              <input type="text" name="country" required value={formData.country} onChange={handleInputChange} placeholder="E.g. Japan" className="w-full bg-transparent outline-none text-slate-800 placeholder-slate-300 font-bold text-lg truncate"/>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-[0.16em] mb-1.5 group-hover:text-[#bd7559] transition-colors">Country / region</label>
+              <input type="text" name="country" required value={formData.country} onChange={handleInputChange} placeholder="Add a country" className="w-full bg-transparent outline-none text-slate-800 placeholder-slate-400 font-semibold text-base truncate"/>
             </div>
 
             <div className="flex-1 px-6 py-4 w-full hover:bg-teal-50/50 transition-colors group cursor-text">
-              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 group-hover:text-teal-600 transition-colors">Duration</label>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-[0.16em] mb-1.5 group-hover:text-[#bd7559] transition-colors">Your trip</label>
               <div className="flex items-center gap-2">
-                <input type="number" name="days" min="1" required value={formData.days} onChange={handleInputChange} placeholder="3" className="w-12 bg-transparent outline-none text-slate-800 placeholder-slate-300 font-bold text-lg"/>
+                <input type="number" name="days" min="1" required value={formData.days} onChange={handleInputChange} placeholder="3" className="w-12 bg-transparent outline-none text-slate-800 placeholder-slate-400 font-semibold text-base"/>
                 <span className="text-slate-400 font-medium">Days</span>
               </div>
             </div>
 
             <div className="pl-4 pr-2 pb-2 md:pb-0 w-full md:w-auto mt-2 md:mt-0">
-              <button type="submit" className="w-full md:w-auto bg-slate-900 hover:bg-teal-600 text-white rounded-2xl md:rounded-full p-4 md:px-10 md:py-5 transition-all duration-300 shadow-xl flex items-center justify-center gap-3 font-bold group">
-                <span className="md:hidden">Start Planning</span>
-                <span className="hidden md:block">Plan Trip</span>
-                <ArrowRightIcon className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+              <button type="submit" disabled={searchLoading} className="w-full md:w-auto bg-[#21483e] hover:bg-[#bd7559] disabled:opacity-75 text-white rounded-xl md:rounded-full p-4 md:px-8 md:py-4 transition-all duration-300 shadow-lg flex items-center justify-center gap-3 font-bold group">
+                <span>{searchLoading ? 'Finding places…' : 'Find my trip'}</span>
+                {searchLoading ? <span aria-hidden="true" className="h-4 w-4 rounded-full border-2 border-white/40 border-t-white animate-spin" /> : <ArrowRightIcon className="w-5 h-5 group-hover:translate-x-1 transition-transform" />}
               </button>
             </div>
           </form>
 
           {/* Trusted Badges */}
-          <div className="mt-12 flex flex-wrap justify-center gap-6 items-center text-white/60 text-sm font-medium">
-            <span className="flex items-center gap-2"><ShieldCheck className="w-4 h-4"/> Verified Guides</span>
-            <span className="flex items-center gap-2"><Star className="w-4 h-4"/> 4.9/5 Average Rating</span>
-            <span className="flex items-center gap-2"><Zap className="w-4 h-4"/> Instant Itineraries</span>
+          <div className="mt-7 flex flex-wrap gap-x-7 gap-y-3 items-center text-white/80 text-xs sm:text-sm font-medium">
+            <span className="flex items-center gap-2"><ShieldCheck className="w-4 h-4 text-[#f0b293]"/> Thoughtfully curated</span>
+            <span className="flex items-center gap-2"><Star className="w-4 h-4 text-[#f0b293] fill-[#f0b293]"/> Loved by 2,000+ travelers</span>
+            <span className="flex items-center gap-2"><Zap className="w-4 h-4 text-[#f0b293]"/> Your plan in moments</span>
           </div>
         </motion.div>
       </main>
 
+      {(searchLoading || searchResults.length > 0 || searchError) && (
+        <section id="search-results" aria-live="polite" className="scroll-mt-24 bg-[#eef1eb] border-y border-[#dfe6de] px-6 py-14 lg:py-16">
+          <div className="max-w-7xl mx-auto">
+            <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8">
+              <div>
+                <span className="text-[#bd7559] font-bold tracking-[0.18em] uppercase text-xs mb-3 block">Live destination search</span>
+                <h2 className="font-heading text-3xl lg:text-4xl font-medium text-[#1d2925]">Places to explore</h2>
+                {searchQuery && <p className="mt-2 text-slate-600">Showing photo-backed matches for <strong className="text-[#1d2925]">{searchQuery}</strong></p>}
+              </div>
+              {searchResults.length > 0 && <span className="text-sm text-slate-500">Place summaries and photos via Wikipedia</span>}
+            </div>
+
+            {searchLoading ? (
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5" role="status" aria-label="Searching for places">
+                {[0, 1, 2].map((item) => <div key={item} className="h-[390px] rounded-[1.25rem] bg-white animate-pulse border border-slate-200" />)}
+                <span className="sr-only">Searching Wikipedia for places with photos.</span>
+              </div>
+            ) : searchResults.length > 0 ? (
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                {searchResults.map((place) => (
+                  <article key={place.pageid} className="group overflow-hidden rounded-[1.25rem] bg-white border border-slate-200 shadow-sm hover:shadow-[0_20px_40px_-20px_rgba(29,41,37,0.4)] transition-all duration-300">
+                    <button type="button" onClick={() => handleSelectLivePlace(place)} className="block w-full text-left">
+                      <div className="relative h-56 overflow-hidden bg-[#dfe6de]">
+                        <img src={place.thumbnail?.source} alt={place.title} className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105" />
+                        <span className="absolute left-4 top-4 rounded-full bg-white/90 px-3 py-1.5 text-xs font-bold text-[#21483e] backdrop-blur">Place match</span>
+                      </div>
+                      <div className="p-5 pb-3">
+                        <h3 className="font-heading text-2xl font-medium text-[#1d2925] group-hover:text-[#bd7559] transition-colors">{place.title}</h3>
+                        <p className="mt-2 text-sm leading-relaxed text-slate-600 line-clamp-3">{place.extract}</p>
+                      </div>
+                    </button>
+                    <div className="flex items-center justify-between gap-3 px-5 pb-5 pt-2">
+                      <a href={`https://en.wikipedia.org/?curid=${place.pageid}`} target="_blank" rel="noreferrer" className="text-xs font-semibold text-slate-500 underline decoration-slate-300 underline-offset-4 hover:text-[#21483e]">Source: Wikipedia</a>
+                      <button type="button" onClick={() => handleSelectLivePlace(place)} className="inline-flex items-center gap-2 rounded-full bg-[#21483e] px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-[#bd7559]">Build this trip <ChevronRight className="h-4 w-4" /></button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-[1.25rem] border border-[#d7dfd8] bg-white px-6 py-8 text-center">
+                <Search className="mx-auto h-7 w-7 text-[#bd7559]" />
+                <p className="mt-3 font-semibold text-[#1d2925]">{searchError}</p>
+                <p className="mt-1 text-sm text-slate-500">You can also explore one of the destinations below.</p>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
       {/* --- DESTINATIONS SECTION --- */}
-      <section id="destinations" className="max-w-7xl mx-auto px-6 py-24 relative z-10">
+      <section id="destinations" className="max-w-7xl mx-auto px-6 py-24 lg:py-28 relative z-10">
         <div className="flex flex-col md:flex-row justify-between items-end mb-12 gap-6">
           <div className="max-w-2xl">
-            <span className="text-teal-600 font-bold tracking-widest uppercase text-sm mb-3 block">Discover</span>
-            <h2 className="font-heading text-4xl lg:text-5xl font-extrabold text-slate-900 tracking-tight leading-tight">Trending Destinations</h2>
-            <p className="text-slate-500 mt-4 text-lg">Hand-picked locations highly rated by our community. Click to explore tailored guides.</p>
+            <span className="text-[#bd7559] font-bold tracking-[0.18em] uppercase text-xs mb-3 block">A little inspiration</span>
+            <h2 className="font-heading text-4xl lg:text-5xl font-medium text-[#1d2925] leading-tight">Somewhere wonderful<br className="hidden sm:block" /> is waiting.</h2>
+            <p className="text-slate-600 mt-4 text-base lg:text-lg">Start with a place you’ve been dreaming about. We’ll help you make the most of every day there.</p>
           </div>
-          <button className="hidden md:flex items-center gap-2 text-slate-600 font-bold hover:text-teal-600 transition-colors">
-            View All Destinations <ArrowRightIcon className="w-4 h-4" />
-          </button>
+          <a href="#trip-search" className="hidden md:flex items-center gap-2 text-[#21483e] font-bold hover:text-[#bd7559] transition-colors">Plan somewhere new <ArrowRightIcon className="w-4 h-4" /></a>
         </div>
 
         <motion.div 
           variants={fadeUpContainer} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-50px" }}
-          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8"
+          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 lg:gap-6"
         >
           {POPULAR_PLACES.map((place) => (
             <motion.div
               variants={fadeUpItem}
               key={place.id}
-              className="group relative bg-white rounded-[2rem] shadow-sm hover:shadow-[0_20px_40px_-15px_rgba(0,0,0,0.1)] transition-all duration-500 cursor-pointer overflow-hidden border border-slate-100 flex flex-col h-[420px]"
+              className="group relative bg-white rounded-[1.25rem] shadow-sm hover:shadow-[0_24px_45px_-20px_rgba(23,46,38,0.48)] transition-all duration-500 cursor-pointer overflow-hidden border border-white flex flex-col h-[390px]"
               onClick={() => {
                 setActivePlace(place);
                 setItinerary([]);
                 setSelectedAttraction(null);
               }}
             >
-              <div className="absolute inset-0 overflow-hidden">
+                <div className="absolute inset-0 overflow-hidden">
                 <img src={place.image} alt={place.name} className="w-full h-full object-cover transition-transform duration-1000 group-hover:scale-110"/>
-                <div className="absolute inset-0 bg-gradient-to-t from-slate-900/90 via-slate-900/20 to-transparent opacity-80 group-hover:opacity-90 transition-opacity"></div>
+                <div className="absolute inset-0 bg-gradient-to-t from-[#142720]/90 via-[#142720]/15 to-transparent opacity-90 group-hover:opacity-100 transition-opacity"></div>
               </div>
               
               <div className="relative z-10 p-5 flex flex-col h-full justify-between">
@@ -381,14 +493,12 @@ export default function Home() {
                   </div>
                 </div>
                 
-                <div className="translate-y-4 group-hover:translate-y-0 transition-transform duration-300">
-                  <p className="text-teal-300 text-xs font-bold tracking-widest uppercase mb-2 flex items-center gap-1.5">
+                <div className="translate-y-0 sm:translate-y-3 group-hover:translate-y-0 transition-transform duration-300">
+                  <p className="text-[#f0b293] text-xs font-bold tracking-widest uppercase mb-2 flex items-center gap-1.5">
                     <MapPin className="w-3.5 h-3.5" /> {place.location}
                   </p>
-                  <h3 className="font-heading font-extrabold text-3xl text-white drop-shadow-md tracking-tight leading-tight mb-3">{place.name}</h3>
-                  <button className="opacity-0 group-hover:opacity-100 flex items-center gap-2 text-white font-semibold text-sm bg-white/20 backdrop-blur-sm px-4 py-2 rounded-xl transition-all w-max hover:bg-teal-500">
-                    Explore Guide <ChevronRight className="w-4 h-4" />
-                  </button>
+                  <h3 className="font-heading font-medium text-3xl text-white drop-shadow-md leading-tight mb-3">{place.name}</h3>
+                  <span className="flex items-center gap-2 text-white font-semibold text-sm bg-white/15 backdrop-blur-sm px-4 py-2.5 rounded-full transition-all w-max group-hover:bg-white group-hover:text-[#21483e]">Explore destination <ChevronRight className="w-4 h-4" /></span>
                 </div>
               </div>
             </motion.div>
@@ -396,26 +506,89 @@ export default function Home() {
         </motion.div>
       </section>
 
+      <section id="experiences" className="bg-[#e9eee8] py-20 lg:py-24 border-y border-[#dfe6de]">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="flex flex-col md:flex-row justify-between md:items-end gap-5 mb-10">
+            <div>
+              <span className="text-[#bd7559] font-bold tracking-[0.18em] uppercase text-xs mb-3 block">Travel your way</span>
+              <h2 className="font-heading text-4xl lg:text-5xl font-medium text-[#1d2925]">Choose your kind of escape.</h2>
+            </div>
+            <p className="max-w-md text-slate-600 leading-relaxed">A slow morning by the sea or a trail that takes your breath away. Your next trip should feel like you.</p>
+          </div>
+          <div className="grid md:grid-cols-3 gap-5">
+            {[
+              { title: "Coastal slow-down", category: "Sea air & sunshine", rating: "4.9", image: "https://images.unsplash.com/photo-1516483638261-f40af5edca87?auto=format&fit=crop&q=85&w=1100", alt: "Colorful villages along the Italian coast" },
+              { title: "Into the wild", category: "Trails & open skies", rating: "4.8", image: "https://images.unsplash.com/photo-1472396961693-142e6e269027?auto=format&fit=crop&q=85&w=1100", alt: "Sunlit mountain landscape" },
+              { title: "A city, slowly", category: "Culture & discovery", rating: "5.0", image: "https://images.unsplash.com/photo-1493976040374-85c8e12f0c0e?auto=format&fit=crop&q=85&w=1100", alt: "Traditional street in Kyoto" },
+            ].map((experience) => (
+              <a key={experience.title} href="#trip-search" className="group relative min-h-[360px] overflow-hidden rounded-[1.25rem] bg-slate-800 shadow-sm">
+                <img src={experience.image} alt={experience.alt} className="absolute inset-0 h-full w-full object-cover transition-transform duration-700 group-hover:scale-105" />
+                <div className="absolute inset-0 bg-gradient-to-t from-[#13251f]/85 via-[#13251f]/15 to-transparent" />
+                <div className="absolute left-5 right-5 top-5 flex items-center justify-between">
+                  <span className="rounded-full border border-white/30 bg-white/15 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur-md">{experience.category}</span>
+                  <span className="flex items-center gap-1 rounded-full bg-white/90 px-2.5 py-1.5 text-xs font-bold text-[#1d2925]"><Star className="h-3.5 w-3.5 fill-[#bd7559] text-[#bd7559]" /> {experience.rating}</span>
+                </div>
+                <div className="absolute inset-x-5 bottom-5 flex items-end justify-between gap-4 text-white">
+                  <h3 className="font-heading text-3xl font-medium">{experience.title}</h3>
+                  <span aria-label="Plan this experience" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white text-[#21483e] transition-transform group-hover:translate-x-1"><ArrowRightIcon className="h-5 w-5" /></span>
+                </div>
+              </a>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section id="how-it-works" className="max-w-7xl mx-auto px-6 py-24 lg:py-28">
+        <div className="grid lg:grid-cols-[1fr_0.9fr] gap-12 lg:gap-20 items-center">
+          <div className="relative min-h-[420px] overflow-hidden rounded-[1.25rem] bg-slate-300">
+            <img src="https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?auto=format&fit=crop&q=85&w=1400" alt="A quiet alpine lake surrounded by mountains" className="absolute inset-0 h-full w-full object-cover" />
+            <div className="absolute inset-0 bg-gradient-to-t from-[#142720]/45 to-transparent" />
+            <div className="absolute bottom-6 left-6 rounded-xl border border-white/50 bg-white/85 px-5 py-4 shadow-lg backdrop-blur-lg">
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#bd7559]">The good part starts here</p>
+              <p className="mt-1 font-heading text-2xl text-[#1d2925]">Less planning. More living.</p>
+            </div>
+          </div>
+          <div>
+            <span className="text-[#bd7559] font-bold tracking-[0.18em] uppercase text-xs mb-3 block">Your trip, taking shape</span>
+            <h2 className="font-heading text-4xl lg:text-5xl font-medium text-[#1d2925] leading-tight">From “one day”<br />to “we’re going.”</h2>
+            <p className="text-slate-600 mt-5 mb-8 text-lg leading-relaxed">A few details are all it takes to turn a place on your list into a trip you can picture.</p>
+            <ol className="space-y-6">
+              {[
+                { number: "01", title: "Pick the place", detail: "Choose a destination you love, or find a little inspiration." },
+                { number: "02", title: "Set your pace", detail: "Tell us how many days you have and what your trip looks like." },
+                { number: "03", title: "Get out there", detail: "Explore a day-by-day guide with the details worth knowing." },
+              ].map((step) => (
+                <li key={step.number} className="flex gap-5 border-b border-[#dce3dd] pb-5 last:border-0">
+                  <span className="font-heading text-xl italic text-[#bd7559]">{step.number}</span>
+                  <div><h3 className="font-bold text-[#1d2925]">{step.title}</h3><p className="mt-1 text-sm leading-relaxed text-slate-600">{step.detail}</p></div>
+                </li>
+              ))}
+            </ol>
+            <a href="#trip-search" className="mt-7 inline-flex items-center gap-2 font-bold text-[#21483e] hover:text-[#bd7559] transition-colors">Start planning <ArrowRightIcon className="h-4 w-4" /></a>
+          </div>
+        </div>
+      </section>
+
       {/* --- FEATURES SECTION --- */}
-      <section id="features" className="bg-white py-24 border-y border-slate-100">
+      <section id="features" className="bg-white py-24 lg:py-28 border-y border-slate-100">
         <div className="max-w-7xl mx-auto px-6">
           <div className="text-center max-w-3xl mx-auto mb-16">
-            <span className="text-teal-600 font-bold tracking-widest uppercase text-sm mb-3 block">Why Choose Us</span>
-            <h2 className="font-heading text-4xl lg:text-5xl font-extrabold text-slate-900 tracking-tight leading-tight">Travel Planning, Perfected.</h2>
-            <p className="text-slate-500 mt-4 text-lg">We eliminate the stress of research by generating beautifully structured, chronological itineraries packed with deep local insights.</p>
+            <span className="text-[#bd7559] font-bold tracking-[0.18em] uppercase text-xs mb-3 block">A better way to get there</span>
+            <h2 className="font-heading text-4xl lg:text-5xl font-medium text-[#1d2925] leading-tight">The details, taken care of.</h2>
+            <p className="text-slate-600 mt-4 text-lg">Thoughtful routes, helpful context, and the freedom to enjoy the journey instead of planning every minute.</p>
           </div>
 
-          <div className="grid md:grid-cols-3 gap-10">
+          <div className="grid md:grid-cols-3 gap-5 lg:gap-6">
             {[
               { icon: <Compass className="w-8 h-8 text-teal-600" />, title: "Smart Chronological Guides", desc: "No more backtracking. Our engine maps out morning, afternoon, and evening slots perfectly." },
               { icon: <Landmark className="w-8 h-8 text-teal-600" />, title: "Deep Historical Insights", desc: "Click any location in your itinerary to reveal rich historical facts, timings, and ticket prices." },
               { icon: <HeartHandshake className="w-8 h-8 text-teal-600" />, title: "Verified Local Contacts", desc: "Book with confidence using our curated list of top-rated, verified local tourist agencies." }
             ].map((feat, i) => (
-              <div key={i} className="bg-slate-50 rounded-[2rem] p-8 border border-slate-100 hover:border-teal-200 hover:shadow-xl transition-all duration-300">
-                <div className="bg-white w-16 h-16 rounded-2xl shadow-sm flex items-center justify-center mb-6">
+              <div key={i} className="bg-[#f6f7f3] rounded-[1.25rem] p-7 lg:p-8 border border-slate-100 hover:border-[#becfc3] hover:shadow-[0_18px_36px_-22px_rgba(29,41,37,0.35)] transition-all duration-300">
+                <div className="bg-white w-14 h-14 rounded-xl shadow-sm flex items-center justify-center mb-6 [&>svg]:text-[#21483e]">
                   {feat.icon}
                 </div>
-                <h3 className="font-heading text-2xl font-bold text-slate-900 mb-3">{feat.title}</h3>
+                <h3 className="font-heading text-2xl font-medium text-slate-900 mb-3">{feat.title}</h3>
                 <p className="text-slate-600 leading-relaxed">{feat.desc}</p>
               </div>
             ))}
@@ -424,52 +597,53 @@ export default function Home() {
       </section>
 
       {/* --- TESTIMONIALS --- */}
-      <section id="testimonials" className="max-w-7xl mx-auto px-6 py-24">
-        <div className="text-center max-w-3xl mx-auto mb-16">
-          <h2 className="font-heading text-4xl font-extrabold text-slate-900 tracking-tight">Loved by Explorers</h2>
+      <section id="testimonials" className="max-w-7xl mx-auto px-6 py-24 lg:py-28">
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-10">
+          <div>
+            <span className="text-[#bd7559] font-bold tracking-[0.18em] uppercase text-xs mb-3 block">Notes from the road</span>
+            <h2 className="font-heading text-4xl lg:text-5xl font-medium text-[#1d2925]">Good trips leave a mark.</h2>
+          </div>
+          <div className="flex items-center gap-3 text-sm text-slate-600">
+            <span className="flex items-center gap-1 text-[#bd7559]"><Star className="w-4 h-4 fill-current" /><Star className="w-4 h-4 fill-current" /><Star className="w-4 h-4 fill-current" /><Star className="w-4 h-4 fill-current" /><Star className="w-4 h-4 fill-current" /></span>
+            <span><strong className="text-[#1d2925]">4.9/5</strong> from travelers</span>
+          </div>
         </div>
-        <div className="grid md:grid-cols-2 gap-8">
-          <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100 relative">
-            <Quote className="absolute top-8 right-8 w-12 h-12 text-slate-100" />
-            <div className="flex gap-1 mb-4 text-amber-500"><Star className="w-5 h-5 fill-amber-500"/><Star className="w-5 h-5 fill-amber-500"/><Star className="w-5 h-5 fill-amber-500"/><Star className="w-5 h-5 fill-amber-500"/><Star className="w-5 h-5 fill-amber-500"/></div>
-            <p className="text-slate-700 text-lg mb-6 relative z-10 font-medium leading-relaxed">"Ready To Travel completely changed how we planned our trip to Udupi. The chronological timeline told us exactly when to visit the temples and beaches. Perfect execution!"</p>
+        <div className="grid md:grid-cols-2 gap-5">
+          <div className="bg-white p-7 lg:p-9 rounded-[1.25rem] shadow-sm border border-slate-100 relative">
+            <Quote className="absolute top-7 right-7 w-10 h-10 text-[#e9eee8]" />
+            <div className="flex gap-1 mb-5 text-[#bd7559]"><Star className="w-4 h-4 fill-current"/><Star className="w-4 h-4 fill-current"/><Star className="w-4 h-4 fill-current"/><Star className="w-4 h-4 fill-current"/><Star className="w-4 h-4 fill-current"/></div>
+            <p className="text-slate-700 text-lg mb-7 relative z-10 leading-relaxed">&ldquo;Ready To Travel completely changed how we planned our trip to Udupi. The chronological timeline told us exactly when to visit the temples and beaches. Perfect execution!&rdquo;</p>
             <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-full bg-teal-100 flex items-center justify-center font-bold text-teal-700">AR</div>
-              <div>
-                <p className="font-bold text-slate-900">Ananya R.</p>
-                <p className="text-sm text-slate-500">Traveled to Udupi</p>
-              </div>
+              <div className="w-11 h-11 rounded-full bg-[#e9eee8] flex items-center justify-center font-bold text-[#21483e]">AR</div>
+              <div><p className="font-bold text-slate-900">Ananya R.</p><p className="text-sm text-slate-500">Traveled to Udupi</p></div>
             </div>
           </div>
-          <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100 relative">
-            <Quote className="absolute top-8 right-8 w-12 h-12 text-slate-100" />
-            <div className="flex gap-1 mb-4 text-amber-500"><Star className="w-5 h-5 fill-amber-500"/><Star className="w-5 h-5 fill-amber-500"/><Star className="w-5 h-5 fill-amber-500"/><Star className="w-5 h-5 fill-amber-500"/><Star className="w-5 h-5 fill-amber-500"/></div>
-            <p className="text-slate-700 text-lg mb-6 relative z-10 font-medium leading-relaxed">"The Ghat section advisory for Malshej was a lifesaver. We knew exactly what vehicle guidelines to follow. The detailed historical info inside the itinerary is brilliant."</p>
+          <div className="bg-white p-7 lg:p-9 rounded-[1.25rem] shadow-sm border border-slate-100 relative">
+            <Quote className="absolute top-7 right-7 w-10 h-10 text-[#e9eee8]" />
+            <div className="flex gap-1 mb-5 text-[#bd7559]"><Star className="w-4 h-4 fill-current"/><Star className="w-4 h-4 fill-current"/><Star className="w-4 h-4 fill-current"/><Star className="w-4 h-4 fill-current"/><Star className="w-4 h-4 fill-current"/></div>
+            <p className="text-slate-700 text-lg mb-7 relative z-10 leading-relaxed">&ldquo;The Ghat section advisory for Malshej was a lifesaver. We knew exactly what vehicle guidelines to follow. The detailed historical info inside the itinerary is brilliant.&rdquo;</p>
             <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-full bg-teal-100 flex items-center justify-center font-bold text-teal-700">MS</div>
-              <div>
-                <p className="font-bold text-slate-900">Michael S.</p>
-                <p className="text-sm text-slate-500">Traveled to Maharashtra</p>
-              </div>
+              <div className="w-11 h-11 rounded-full bg-[#f4e9e1] flex items-center justify-center font-bold text-[#9d5e46]">MS</div>
+              <div><p className="font-bold text-slate-900">Michael S.</p><p className="text-sm text-slate-500">Traveled to Maharashtra</p></div>
             </div>
           </div>
         </div>
       </section>
 
       {/* --- FINAL CTA / FOOTER --- */}
-      <footer className="bg-slate-900 text-white py-20 px-6 relative overflow-hidden rounded-t-[3rem] lg:rounded-t-[5rem]">
-        <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1524661135-423995f22d0b?q=80&w=2000')] opacity-5 bg-cover bg-center"></div>
-        <div className="max-w-4xl mx-auto text-center relative z-10">
-          <h2 className="font-heading text-4xl lg:text-6xl font-extrabold mb-6 tracking-tight">Ready to start your journey?</h2>
-          <p className="text-slate-400 text-lg mb-10 max-w-2xl mx-auto">Join thousands of travelers who plan smarter, explore deeper, and travel better with Ready To Travel.</p>
-          <button onClick={() => window.scrollTo({top: 0, behavior: 'smooth'})} className="bg-teal-500 hover:bg-teal-400 text-slate-900 px-10 py-5 rounded-full font-extrabold text-lg transition-all shadow-[0_0_40px_-10px_rgba(20,184,166,0.5)]">
-            Build Your First Itinerary Now
-          </button>
-        </div>
-        <div className="max-w-7xl mx-auto border-t border-slate-800 mt-20 pt-8 flex flex-col md:flex-row justify-between items-center text-slate-500 text-sm gap-4">
-          <div className="flex items-center gap-2 font-heading font-bold text-lg text-white">
-            <Navigation className="w-5 h-5 text-teal-500" /> ReadyToTravel
+      <footer className="bg-[#18342c] text-white relative overflow-hidden">
+        <div className="relative px-6 py-20 lg:py-24 text-center">
+          <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&q=80&w=2000')] opacity-20 bg-cover bg-center"></div>
+          <div className="absolute inset-0 bg-gradient-to-r from-[#18342c]/95 via-[#18342c]/85 to-[#18342c]/75"></div>
+          <div className="max-w-4xl mx-auto relative z-10">
+            <span className="text-[#f0b293] font-bold tracking-[0.18em] uppercase text-xs mb-4 block">The best days are still ahead</span>
+            <h2 className="font-heading text-4xl sm:text-5xl lg:text-6xl font-medium mb-5 leading-tight">Let’s make your next trip happen.</h2>
+            <p className="text-white/75 text-lg mb-8 max-w-xl mx-auto leading-relaxed">Bring the idea. We’ll help with the plan. Your next great story starts with a destination.</p>
+            <a href="#trip-search" className="inline-flex items-center justify-center gap-3 bg-[#f0b293] hover:bg-white text-[#18342c] px-7 py-4 rounded-full font-bold transition-all shadow-lg">Plan your trip <ArrowRightIcon className="w-5 h-5" /></a>
           </div>
+        </div>
+        <div className="max-w-7xl mx-auto border-t border-white/15 px-6 py-7 flex flex-col md:flex-row justify-between items-center text-white/60 text-sm gap-4">
+          <div className="flex items-center gap-2 font-heading font-bold text-lg text-white"><Navigation className="w-5 h-5 text-[#f0b293]" /> ReadyToTravel</div>
           <p>© 2026 Ready To Travel. All rights reserved.</p>
         </div>
       </footer>
