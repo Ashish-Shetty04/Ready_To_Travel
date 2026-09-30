@@ -15,6 +15,11 @@ const playfairDisplay = Playfair_Display({
 export const metadata: Metadata = {
   title: "Ready To Travel",
   description: "Plan your next perfect adventure",
+  icons: {
+    icon: "/Logo.svg",
+    shortcut: "/Logo.svg",
+    apple: "/Logo.svg",
+  },
 };
 
 export default function RootLayout({

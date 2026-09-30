@@ -168,7 +168,7 @@ export default function Home() {
   const [formData, setFormData] = useState({
     country: '',
     place: '',
-    days: '3',
+    days: '',
     date: ''
   });
 
@@ -294,9 +294,11 @@ export default function Home() {
       {/* --- PREMIUM NAVBAR --- */}
       <nav aria-label="Main navigation" className={`fixed top-0 w-full z-50 px-5 lg:px-12 py-4 transition-all duration-500 flex justify-between items-center ${isScrolled ? 'bg-[#f6f7f3]/90 backdrop-blur-xl shadow-[0_4px_30px_rgba(29,41,37,0.08)] text-slate-900 border-b border-slate-200/60' : 'bg-gradient-to-b from-black/55 to-transparent text-white'}`}>
         <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActivePlace(null)}>
-          <div className={`w-10 h-10 rounded-full transition-all duration-300 flex items-center justify-center ${isScrolled ? 'bg-[#21483e] text-white shadow-md' : 'bg-white/15 text-white backdrop-blur-md border border-white/25'}`}>
-            <Navigation className="w-[18px] h-[18px]" />
-          </div>
+          <img
+            src="/Logo.png"
+            alt="Ready To Travel logo"
+            className="h-11 w-11 shrink-0 rounded-full object-cover ring-2 ring-white/70 shadow-[0_8px_30px_rgba(54,89,77,0.35)]"
+          />
           <span className="font-heading font-bold text-[1.35rem] tracking-tight">Ready<span className={isScrolled ? 'text-[#bd7559]' : 'text-[#f0b293]'}>To</span>Travel</span>
         </div>
         
@@ -306,9 +308,7 @@ export default function Home() {
           <a href="#experiences" className={`transition-colors ${isScrolled ? 'text-slate-600 hover:text-[#bd7559]' : 'text-white/90 hover:text-white'}`}>Experiences</a>
           <a href="#features" className={`transition-colors ${isScrolled ? 'text-slate-600 hover:text-[#bd7559]' : 'text-white/90 hover:text-white'}`}>How it works</a>
           <a href="#testimonials" className={`transition-colors ${isScrolled ? 'text-slate-600 hover:text-[#bd7559]' : 'text-white/90 hover:text-white'}`}>Stories</a>
-          <a href="#trip-search" className={`px-5 py-2.5 rounded-full font-bold transition-all ${isScrolled ? 'bg-[#21483e] text-white hover:bg-[#bd7559] shadow-md' : 'bg-white text-slate-900 hover:bg-[#f4e9e1]'}`}>
-            Sign In
-          </a>
+          <a href="#trip-search"className={`transition-colors ${isScrolled ? 'text-slate-600 hover:text-[#bd7559]' : 'text-white/90 hover:text-white'}`}>Plan A Trip</a>
         </div>
 
         {/* Mobile Menu Toggle */}
