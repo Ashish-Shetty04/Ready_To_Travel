@@ -16,9 +16,9 @@ export const metadata: Metadata = {
   title: "Ready To Travel",
   description: "Plan your next perfect adventure",
   icons: {
-    icon: "/Logo.svg",
-    shortcut: "/Logo.svg",
-    apple: "/Logo.svg",
+    icon: "/Logo.png",
+    shortcut: "/Logo.png",
+    apple: "/Logo.png",
   },
 };
 
