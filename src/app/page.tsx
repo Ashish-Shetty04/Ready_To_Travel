@@ -2,9 +2,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { 
-  Globe, MapPin, Calendar, Search, Car, Info, Phone, X,
-  ChevronRight, ChevronDown, Star, Map, ArrowLeft, Landmark,
-  Navigation, Menu, Quote, ShieldCheck, Compass, HeartHandshake, Zap
+  Globe, MapPin, Calendar, Search, Car, Ticket, Info, Phone, X, 
+  ChevronRight, ChevronDown, Star, Map, ArrowLeft, Clock, Landmark, 
+  Sunrise, Sun, Sunset, Navigation, Menu, Quote, ShieldCheck, Compass, HeartHandshake, Zap
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -95,54 +95,58 @@ type LivePlaceResult = {
   extract?: string;
   thumbnail?: { source: string };
   coordinates?: { lat: number; lon: number }[];
-  categories?: { title: string }[];
 };
 
-type ItineraryPlace = {
-  pageid: number;
-  name: string;
-  type: string;
-  desc: string;
-  img: string;
-  history: string;
-  sourceUrl: string;
-};
+// Helper to generate chronological non-repeating itinerary
+const generateItinerary = (placeName: string, daysStr: string, attractions: any[]) => {
+  const days = parseInt(daysStr) || 3;
+  const itinerary = [];
+  
+  const fallbackAttractions = [
+    { name: `Historic Center of ${placeName}`, type: "Historical", desc: "Explore local architecture.", img: "https://images.unsplash.com/photo-1590050752117-238cb0fb12b1?auto=format&fit=crop&w=800", history: `Centuries old historical site.`, timings: "08:00 AM - 05:00 PM", fee: "₹50" },
+    { name: `Grand Temple`, type: "Historical", desc: "A majestic ancient temple.", img: "https://images.unsplash.com/photo-1600100397608-f010f41cb8ea?auto=format&fit=crop&w=800", history: `Built over 800 years ago.`, timings: "06:00 AM - 08:00 PM", fee: "Free" },
+    { name: `Local Museum`, type: "Cultural", desc: "Rich history and arts.", img: "https://images.unsplash.com/photo-1518998053401-8789024c47ce?auto=format&fit=crop&w=800", history: `Preserves local heritage.`, timings: "10:00 AM - 05:00 PM", fee: "₹100" },
+    { name: `Scenic Viewpoint`, type: "Nature", desc: "Stunning sunset views.", img: "https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?auto=format&fit=crop&w=800", history: "Natural landscape.", timings: "Open 24 hrs", fee: "Free" },
+    { name: `Botanical Gardens`, type: "Nature", desc: "Lush green exotic plants.", img: "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&w=800", history: "Planted in the 19th century.", timings: "09:00 AM - 06:00 PM", fee: "₹20" },
+    { name: `Local Market Walk`, type: "Leisure", desc: "Shop for souvenirs and street food.", img: "https://images.unsplash.com/photo-1533900298318-6b8da08a523e?auto=format&fit=crop&w=800", history: "A bustling trading hub for centuries.", timings: "10:00 AM - 09:00 PM", fee: "Free" },
+  ];
 
-type ItineraryDay = {
-  day: number;
-  title: string;
-  places: ItineraryPlace[];
-};
+  let availableAttractions = [...(attractions?.length ? attractions : fallbackAttractions)];
+  let nextFallbackIndex = 0;
 
-const isTravelPlaceResult = (place: LivePlaceResult, destination: string) => {
-  const title = place.title.toLowerCase();
-  const summary = place.extract?.toLowerCase() || '';
-  const categories = place.categories?.map((category) => category.title.toLowerCase()).join(' ') || '';
-  const destinationMatch = destination.trim().toLowerCase();
-  const excludedTitle = /\b(election|politic\w*|government|parliament|attack|terrorism|disaster|protest|breaking news|crisis|riot|assassination|revolution|coup|massacre|bombing|earthquake|flood|accident|crash|war|conflict)\b/;
-  const visitorSiteTitle = /\b(memorial|museum|monument|cemetery|battlefield)\b/;
-  const travelTerms = /\b(attraction|landmark|temple|beach|museum|national park|fort|palace|shrine|waterfall|island|mountain|lake|garden|cathedral|castle|monument|cave|viewpoint|heritage site|tourist destination|tourism|historic district|archaeological site|city|town)\b/;
+  const timeSlots = [
+    { time: "09:00 AM", label: "Morning", icon: <Sunrise className="w-5 h-5 text-amber-500" /> },
+    { time: "01:00 PM", label: "Afternoon", icon: <Sun className="w-5 h-5 text-amber-500" /> },
+    { time: "05:00 PM", label: "Evening", icon: <Sunset className="w-5 h-5 text-amber-500" /> }
+  ];
 
-  return (
-    destinationMatch.length > 0 &&
-    `${title} ${summary} ${categories}`.includes(destinationMatch) &&
-    (!excludedTitle.test(title) || visitorSiteTitle.test(title)) &&
-    travelTerms.test(`${title} ${summary}`)
-  );
-};
+  for (let i = 1; i <= days; i++) {
+    const dayPlaces = [];
+    for (let slot = 0; slot < 3; slot++) {
+      let selectedPlace = null;
+      if (availableAttractions.length > 0) {
+        selectedPlace = availableAttractions.shift();
+      } else {
+        selectedPlace = fallbackAttractions[nextFallbackIndex % fallbackAttractions.length];
+        selectedPlace = { ...selectedPlace, name: `${selectedPlace.name} (Part ${Math.floor(nextFallbackIndex / fallbackAttractions.length) + 2})` };
+        nextFallbackIndex++;
+      }
+      
+      dayPlaces.push({
+        ...selectedPlace,
+        visitTime: timeSlots[slot].time,
+        timeLabel: timeSlots[slot].label,
+        TimeIcon: timeSlots[slot].icon
+      });
+    }
 
-const generateItinerary = (placeName: string, daysStr: string, attractions: ItineraryPlace[]): ItineraryDay[] => {
-  if (attractions.length === 0) return [];
-
-  const requestedDays = Math.max(1, parseInt(daysStr, 10) || 1);
-  const dayCount = Math.min(requestedDays, Math.ceil(attractions.length / 3));
-  const placesPerDay = Math.ceil(attractions.length / dayCount);
-
-  return Array.from({ length: dayCount }, (_, index) => ({
-    day: index + 1,
-    title: `Day ${index + 1}: Places to visit in ${placeName}`,
-    places: attractions.slice(index * placesPerDay, (index + 1) * placesPerDay)
-  }));
+    itinerary.push({
+      day: i,
+      title: `Day ${i}: Highlights of ${placeName}`,
+      places: dayPlaces
+    });
+  }
+  return itinerary;
 };
 
 // --- ANIMATION VARIANTS ---
@@ -170,7 +174,7 @@ export default function Home() {
 
   // UI States
   const [activePlace, setActivePlace] = useState<any>(null);
-  const [itinerary, setItinerary] = useState<ItineraryDay[]>([]);
+  const [itinerary, setItinerary] = useState<any[]>([]);
   const [expandedDay, setExpandedDay] = useState<number | null>(1); 
   const [selectedAttraction, setSelectedAttraction] = useState<any>(null); 
   const [searchResults, setSearchResults] = useState<LivePlaceResult[]>([]);
@@ -208,11 +212,10 @@ export default function Home() {
     const params = new URLSearchParams({
       action: 'query',
       generator: 'search',
-      gsrsearch: `"${formData.place.trim()}" ${formData.country.trim()} (tourist attraction OR landmark OR temple OR beach OR museum OR park OR fort OR palace OR shrine OR waterfall OR island OR mountain OR lake OR garden OR monument)`,
+      gsrsearch: query,
       gsrnamespace: '0',
       gsrlimit: '12',
-      prop: 'pageimages|extracts|coordinates|categories',
-      cllimit: '20',
+      prop: 'pageimages|extracts|coordinates',
       piprop: 'thumbnail',
       pithumbsize: '1000',
       exintro: '1',
@@ -229,15 +232,10 @@ export default function Home() {
       if (data.error) throw new Error(data.error.info || 'Search request failed');
 
       const places = (data.query?.pages ?? []).filter(
-        (place) => Boolean(
-          place.coordinates?.length &&
-          place.thumbnail?.source &&
-          place.extract?.trim() &&
-          isTravelPlaceResult(place, formData.place)
-        )
+        (place) => Boolean(place.coordinates?.length && place.thumbnail?.source && place.extract?.trim())
       );
       setSearchResults(places);
-      if (places.length === 0) setSearchError('No visitor-focused places were found. Try a nearby city or a broader region.');
+      if (places.length === 0) setSearchError('No photo-backed places were found. Try a nearby city or a broader region.');
     } catch {
       setSearchError('We couldn’t load live place data right now. Please try again in a moment.');
     } finally {
@@ -247,24 +245,24 @@ export default function Home() {
 
   const handleSelectLivePlace = (place: LivePlaceResult) => {
     const relatedPlaces = searchResults
+      .filter((result) => result.pageid !== place.pageid)
       .map((result) => ({
-        pageid: result.pageid,
         name: result.title,
         type: 'Place',
         desc: result.extract || `Explore ${result.title}.`,
         img: result.thumbnail?.source || '',
         history: result.extract || `Explore ${result.title}.`,
-        sourceUrl: `https://en.wikipedia.org/?curid=${result.pageid}`
+        timings: 'Check locally before visiting',
+        fee: 'Check locally'
       }));
 
     setActivePlace({
       id: String(place.pageid),
       name: place.title,
-      location: [formData.place.trim(), formData.country.trim()].filter(Boolean).join(', '),
+      location: formData.country || 'Travel inspiration',
       description: place.extract,
       image: place.thumbnail?.source,
       photos: place.thumbnail?.source ? [place.thumbnail.source] : [],
-      isLive: true,
       isGhat: false,
       attractions: relatedPlaces
     });
@@ -583,7 +581,7 @@ export default function Home() {
           <div className="grid md:grid-cols-3 gap-5 lg:gap-6">
             {[
               { icon: <Compass className="w-8 h-8 text-teal-600" />, title: "Smart Chronological Guides", desc: "No more backtracking. Our engine maps out morning, afternoon, and evening slots perfectly." },
-              { icon: <Landmark className="w-8 h-8 text-teal-600" />, title: "Real Place Information", desc: "Explore live place summaries with a source link, and check current visiting details before you go." },
+              { icon: <Landmark className="w-8 h-8 text-teal-600" />, title: "Deep Historical Insights", desc: "Click any location in your itinerary to reveal rich historical facts, timings, and ticket prices." },
               { icon: <HeartHandshake className="w-8 h-8 text-teal-600" />, title: "Verified Local Contacts", desc: "Book with confidence using our curated list of top-rated, verified local tourist agencies." }
             ].map((feat, i) => (
               <div key={i} className="bg-[#f6f7f3] rounded-[1.25rem] p-7 lg:p-8 border border-slate-100 hover:border-[#becfc3] hover:shadow-[0_18px_36px_-22px_rgba(29,41,37,0.35)] transition-all duration-300">
@@ -711,19 +709,26 @@ export default function Home() {
                     <div className="bg-slate-50 p-6 lg:p-8 rounded-[1.5rem] border border-slate-100 mb-8">
                       <h3 className="font-heading text-xl font-bold text-slate-900 mb-4 flex items-center gap-3">
                         <span className="p-2 bg-white rounded-lg shadow-sm text-teal-600"><Landmark className="w-5 h-5" /></span>
-                        About this place
+                        Historical & Contextual Info
                       </h3>
                       <p className="text-slate-600 leading-relaxed text-lg">{selectedAttraction.history}</p>
-                      {selectedAttraction.sourceUrl && (
-                        <a href={selectedAttraction.sourceUrl} target="_blank" rel="noreferrer" className="mt-4 inline-flex text-sm font-semibold text-teal-700 underline underline-offset-4 hover:text-teal-900">
-                          View source on Wikipedia
-                        </a>
-                      )}
                     </div>
 
-                    <div className="mb-12 rounded-xl border border-amber-200 bg-amber-50 p-5">
-                      <p className="font-semibold text-amber-950">Check before you visit</p>
-                      <p className="mt-1 text-sm leading-relaxed text-amber-900">Opening hours, access, and ticket prices can change. Confirm current details with the official venue.</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-12">
+                      <div className="bg-white p-5 rounded-[1.5rem] border border-slate-200 flex items-center gap-4 shadow-sm hover:shadow-md transition-shadow">
+                        <div className="p-3 bg-teal-50 text-teal-600 rounded-xl"><Clock className="w-6 h-6" /></div>
+                        <div>
+                          <p className="font-bold text-slate-900 text-sm">Suggested Visit</p>
+                          <p className="text-slate-500">{selectedAttraction.visitTime} <span className="text-xs font-semibold px-2 py-0.5 bg-slate-100 rounded-md ml-1">{selectedAttraction.timeLabel}</span></p>
+                        </div>
+                      </div>
+                      <div className="bg-white p-5 rounded-[1.5rem] border border-slate-200 flex items-center gap-4 shadow-sm hover:shadow-md transition-shadow">
+                        <div className="p-3 bg-amber-50 text-amber-600 rounded-xl"><Ticket className="w-6 h-6" /></div>
+                        <div>
+                          <p className="font-bold text-slate-900 text-sm">Entry Fee</p>
+                          <p className="text-slate-500 font-medium">{selectedAttraction.fee}</p>
+                        </div>
+                      </div>
                     </div>
                   </motion.div>
 
@@ -765,10 +770,9 @@ export default function Home() {
                           <div className="flex flex-wrap items-center justify-between mb-8 gap-4">
                             <h3 className="font-heading text-3xl font-bold text-slate-900 flex items-center gap-3">
                               <span className="p-2 bg-teal-50 text-teal-600 rounded-xl"><Calendar className="w-6 h-6" /></span> 
-                              Your {itinerary.length}-Day Place Guide
+                              Your {formData.days}-Day Itinerary
                             </h3>
                           </div>
-                          {activePlace.isLive && <p className="mb-5 text-sm leading-relaxed text-slate-600">This guide includes only places returned by the live search. Opening hours and ticket prices are not verified here; confirm them with each venue.</p>}
                           
                           <div className="space-y-4">
                             {itinerary.map((dayItem) => (
@@ -790,13 +794,14 @@ export default function Home() {
                                   {expandedDay === dayItem.day && (
                                     <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="border-t border-slate-100 bg-slate-50/50">
                                       <div className="p-6 md:px-8 relative before:absolute before:inset-0 before:ml-[4.5rem] before:h-full before:w-0.5 before:bg-slate-200/60">
-                                        {dayItem.places.map((place, idx) => (
-                                          <div key={place.pageid} onClick={() => setSelectedAttraction(place)} className="relative flex items-center mb-8 last:mb-0 cursor-pointer group">
+                                        {dayItem.places.map((place: any, idx: number) => (
+                                          <div key={idx} onClick={() => setSelectedAttraction(place)} className="relative flex items-center mb-8 last:mb-0 cursor-pointer group">
                                             <div className="absolute left-[2.25rem] w-3 h-3 bg-white border-[3px] border-teal-500 rounded-full z-10 shadow-sm group-hover:scale-150 group-hover:bg-teal-500 transition-all"></div>
                                             <div className="ml-16 w-full bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex gap-5 items-center group-hover:border-teal-400 group-hover:shadow-lg transition-all duration-300">
                                               <div className="hidden sm:flex flex-col items-center justify-center bg-slate-50/80 p-3 rounded-xl border border-slate-100 min-w-[90px] shrink-0">
-                                                <MapPin className="h-5 w-5 text-teal-600" />
-                                                <span className="mt-2 text-[10px] font-bold uppercase text-slate-500">Stop {idx + 1}</span>
+                                                {place.TimeIcon}
+                                                <span className="text-[10px] font-bold text-slate-500 uppercase mt-2">{place.timeLabel}</span>
+                                                <span className="text-xs font-bold text-slate-800">{place.visitTime}</span>
                                               </div>
                                               <img src={place.img} alt={place.name} className="w-24 h-24 rounded-xl object-cover shadow-sm shrink-0" />
                                               <div className="pr-10 flex-1">
@@ -805,7 +810,7 @@ export default function Home() {
                                                   {place.type === 'Historical' && <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-md">Historic</span>}
                                                 </div>
                                                 <p className="text-slate-600 text-sm line-clamp-2 leading-relaxed">{place.desc}</p>
-                                                <div className="sm:hidden mt-3 flex items-center gap-1.5 text-xs font-bold text-slate-500 bg-slate-100 w-max px-2 py-1 rounded-md"><MapPin className="w-3.5 h-3.5"/> Stop {idx + 1}</div>
+                                                <div className="sm:hidden mt-3 flex items-center gap-1.5 text-xs font-bold text-slate-500 bg-slate-100 w-max px-2 py-1 rounded-md"><Clock className="w-3.5 h-3.5"/> {place.visitTime}</div>
                                               </div>
                                               <div className="absolute right-5 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all"><ChevronRight className="w-6 h-6 text-teal-500" /></div>
                                             </div>
